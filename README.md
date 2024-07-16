@@ -1,2 +1,2 @@
-# kafka-conn-pool
+# KFKP
 A kafka producer pool for Go
