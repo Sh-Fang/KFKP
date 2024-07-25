@@ -19,26 +19,30 @@ func TestGetKafkaTopics(t *testing.T) {
 	}
 }
 
-func TestCreateProducerAndSendMessage(t *testing.T) {
-	pd, err := createProducer("localhost:9092", "bus_1")
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	err = pd.SendMessage([]byte("123"))
-
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
 func TestNewPool(t *testing.T) {
 	pool, err := NewPool()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	idle := pool.GetIdling()
+	pd, err := pool.GetConn()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	fmt.Println(idle)
+	fmt.Println(pool.GetIdling())
+
+	pd.SendMessage([]byte("123"), []byte("hello"))
+
+	err = pool.PutConn(pd)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(pool.GetIdling())
+
+	err = pool.ClosePool()
+	if err != nil {
+		log.Fatal(err)
+	}
 }
