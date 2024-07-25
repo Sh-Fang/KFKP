@@ -13,17 +13,15 @@ var (
 )
 
 type poolInfo struct {
-	initCapacity int32
-
-	maxCapacity int32
-	maxIdle     int32
+	initCapacity  int32
+	maxCapacity   int32
+	maxIdle       int32
+	BrokerAddress string
+	Topic         string
 
 	running int32
 	waiting int32
 	idling  int32
-
-	kafkaBrokerAddress string
-	kafkaTopic         string
 }
 
 type Pool struct {
@@ -46,8 +44,8 @@ func (p *Pool) addProducer() error {
 	pd.producerID = uid
 
 	pd.writer = &kafka.Writer{
-		Addr:         kafka.TCP(p.kafkaBrokerAddress),
-		Topic:        p.kafkaTopic,
+		Addr:         kafka.TCP(p.BrokerAddress),
+		Topic:        p.Topic,
 		Balancer:     &kafka.LeastBytes{},
 		RequiredAcks: kafka.RequireOne,
 		// Async:        true,
@@ -62,15 +60,15 @@ func (p *Pool) addProducer() error {
 func (p *Pool) initialize() error {
 	// get all existed topic
 	var err error
-	kafkaTopics, err = getKafkaTopics(p.kafkaBrokerAddress)
+	kafkaTopics, err = getKafkaTopics(p.BrokerAddress)
 	if err != nil {
 		return err
 	}
 
 	// the pool can be created only if the topic exists
-	_, exists := kafkaTopics[p.kafkaTopic]
+	_, exists := kafkaTopics[p.Topic]
 	if !exists {
-		return fmt.Errorf("topic: %s , has not been created", p.kafkaTopic)
+		return fmt.Errorf("topic: %s , has not been created", p.Topic)
 	}
 
 	// initialize the producers slice
@@ -88,16 +86,25 @@ func (p *Pool) initialize() error {
 	return nil
 }
 
-func NewPool() (*Pool, error) {
-	p := &Pool{poolInfo: poolInfo{
+func NewPool(opts ...Option) (*Pool, error) {
+	// default poolInfo
+	poolInfo := &poolInfo{
 		initCapacity: 10,
 
 		maxCapacity: 100,
 		maxIdle:     50,
 
-		kafkaBrokerAddress: "localhost:9092",
-		kafkaTopic:         "bus_1",
-	}}
+		BrokerAddress: "localhost:9092",
+		Topic:         "bus_1",
+	}
+
+	// if there are any options, ignore the default options and apply those options
+	for _, opt := range opts {
+		opt(poolInfo)
+	}
+
+	// according to the poolInfo, create the pool
+	p := &Pool{poolInfo: *poolInfo}
 
 	err := p.initialize()
 	if err != nil {
