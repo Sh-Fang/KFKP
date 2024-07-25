@@ -38,7 +38,7 @@ func TestNewPool(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	idle := pool.GetIdle()
+	idle := pool.GetIdling()
 
 	fmt.Println(idle)
 }

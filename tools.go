@@ -30,16 +30,13 @@ func getKafkaTopics(brokerAddress string) (map[string]struct{}, error) {
 }
 
 func generateSonyflakeID() (string, error) {
-	//创建setting实例
 	var st sonyflake.Settings
 
-	//创建Sonyflake实例
 	sf, err := sonyflake.New(st)
 	if err != nil {
 		return "", errors.New("sonyflake creation failed")
 	}
 
-	//根据当前sf的情况产生id
 	uid, err := sf.NextID()
 	if err != nil {
 		return "", errors.New("uid creation failed")

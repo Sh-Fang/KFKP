@@ -50,8 +50,8 @@ func createProducer(brokerAddress string, topic string) (*producer, error) {
 	pd.writer = &kafka.Writer{
 		Addr:         kafka.TCP(brokerAddress),
 		Topic:        topic,
-		Balancer:     &kafka.LeastBytes{}, // 指定分区的balancer模式为最小字节分布
-		RequiredAcks: kafka.RequireOne,    // ack模式
+		Balancer:     &kafka.LeastBytes{},
+		RequiredAcks: kafka.RequireOne, // ack mode
 	}
 
 	return pd, nil
@@ -131,7 +131,7 @@ func (p *Pool) GetRunning() int {
 	return int(atomic.LoadInt32(&p.running))
 }
 
-func (p *Pool) GetIdle() int {
+func (p *Pool) GetIdling() int {
 	return int(atomic.LoadInt32(&p.idling))
 }
 
