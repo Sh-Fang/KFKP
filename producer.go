@@ -7,8 +7,8 @@ import (
 )
 
 type producer struct {
-	producerID string
-	writer     *kafka.Writer
+	// producerID string
+	writer *kafka.Writer
 }
 
 func (pd *producer) SendMessage(key, value []byte) error {

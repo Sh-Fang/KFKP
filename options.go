@@ -1,5 +1,7 @@
 package kfkp
 
+import "github.com/segmentio/kafka-go"
+
 type Option func(*poolInfo)
 
 func WithInitCapacity(size int) Option {
@@ -22,12 +24,24 @@ func WithMaxIdle(size int) Option {
 
 func WithBrokerAddress(brokerAddress string) Option {
 	return func(p *poolInfo) {
-		p.BrokerAddress = brokerAddress
+		p.brokerAddress = brokerAddress
 	}
 }
 
 func WithTopic(topic string) Option {
 	return func(p *poolInfo) {
-		p.Topic = topic
+		p.topic = topic
+	}
+}
+
+func WithRequiredAcks(requiredAcks kafka.RequiredAcks) Option {
+	return func(p *poolInfo) {
+		p.requiredAcks = requiredAcks
+	}
+}
+
+func WithAsync(async bool) Option {
+	return func(p *poolInfo) {
+		p.async = async
 	}
 }

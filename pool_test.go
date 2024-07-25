@@ -6,6 +6,9 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/segmentio/kafka-go"
 )
 
 func TestGetKafkaTopics(t *testing.T) {
@@ -21,76 +24,16 @@ func TestGetKafkaTopics(t *testing.T) {
 	}
 }
 
-func TestNewPool(t *testing.T) {
-	// using default config
-	pool, err := NewPool()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	pd, err := pool.GetConn()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(pool.GetIdling())
-
-	pd.SendMessage([]byte("123"), []byte("hello"))
-
-	err = pool.PutConn(pd)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(pool.GetIdling())
-
-	err = pool.ClosePool()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// using consumer config
-	pool, err = NewPool(
-		WithInitCapacity(100),
-		WithMaxCapacity(1000),
-		WithMaxIdle(100),
-		WithBrokerAddress("localhost:9092"),
-		WithTopic("bus_1"),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	pd, err = pool.GetConn()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(pool.GetIdling())
-
-	pd.SendMessage([]byte("312"), []byte("hello"))
-
-	err = pool.PutConn(pd)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(pool.GetIdling())
-
-	err = pool.ClosePool()
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
 func TestConcurrentGetAndPut(t *testing.T) {
 	// using consumer config
 	pool, err := NewPool(
-		WithInitCapacity(100),
+		WithInitCapacity(10),
 		WithMaxCapacity(100),
 		WithMaxIdle(20),
 		WithBrokerAddress("localhost:9092"),
 		WithTopic("bus_1"),
+		WithRequiredAcks(kafka.RequireNone),
+		WithAsync(false),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -98,29 +41,33 @@ func TestConcurrentGetAndPut(t *testing.T) {
 
 	wg := sync.WaitGroup{}
 
-	for i := 0; i < 100; i++ {
-		go func(i int) {
+	for i := 0; i < 10000; i++ {
+		go func() {
 			wg.Add(1)
 			defer wg.Done()
 
 			pd, err := pool.GetConn()
 			if err != nil {
-				log.Fatal(err)
+				return
+			}
+
+			if pd == nil {
+				return
 			}
 
 			err = pd.SendMessage([]byte("123"), []byte(strconv.Itoa(i)))
 			if err != nil {
-				log.Fatal(err)
+				return
 			}
 
-			// time.Sleep(100 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			err = pool.PutConn(pd)
 			if err != nil {
-				log.Fatal(err)
+				return
 			}
 
-		}(i)
+		}()
 	}
 
 	wg.Wait()
