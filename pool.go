@@ -1,7 +1,8 @@
 package kfkp
 
 import (
-	"log"
+	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -9,24 +10,24 @@ import (
 )
 
 var (
-	topic2id map[string]struct{}
+	kafkaTopics map[string]struct{}
 )
 
 type poolInfo struct {
 	maxCapacity  int32
 	initCapacity int32
+	maxIdle      int32
 
 	running int32
 	waiting int32
-
-	idle    int32
-	maxIdle int32
+	idling  int32
 
 	kafkaBrokerAddress string
+	kafkaTopic         string
 }
 
 type producer struct {
-	producerID int
+	producerID string
 	writer     *kafka.Writer
 }
 
@@ -36,71 +37,86 @@ type Pool struct {
 	mu        sync.Mutex
 }
 
-func getAllKafkaTopic(brokerAddress string, m map[string]struct{}) {
-	conn, err := kafka.Dial("tcp", brokerAddress)
+func createProducer(brokerAddress string, topic string) (*producer, error) {
+	pd := &producer{}
+
+	uid, err := generateSonyflakeID()
 	if err != nil {
-		panic(err.Error())
-	}
-	defer conn.Close()
-
-	partitions, err := conn.ReadPartitions()
-	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 
-	for _, p := range partitions {
-		m[p.Topic] = struct{}{}
-	}
-}
+	pd.producerID = uid
 
-func createProducer() (*producer, error) {
-	p := &producer{}
-	p.producerID = 1
-
-	p.writer = &kafka.Writer{
-		Addr:         kafka.TCP("localhost:9092"),
-		Topic:        "bus_1",
+	pd.writer = &kafka.Writer{
+		Addr:         kafka.TCP(brokerAddress),
+		Topic:        topic,
 		Balancer:     &kafka.LeastBytes{}, // 指定分区的balancer模式为最小字节分布
 		RequiredAcks: kafka.RequireOne,    // ack模式
 	}
 
-	return p, nil
+	return pd, nil
 
 }
 
-func (p *Pool) initialize() {
+func (pd *producer) SendMessage(msg []byte) error {
+	err := pd.writer.WriteMessages(context.Background(), kafka.Message{
+		Value: msg,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (p *Pool) initialize() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	getAllKafkaTopic(p.kafkaBrokerAddress, topic2id)
+	var err error
+	kafkaTopics, err = getKafkaTopics(p.kafkaBrokerAddress)
+	if err != nil {
+		return err
+	}
+
+	_, exists := kafkaTopics[p.kafkaTopic]
+	if !exists {
+		return fmt.Errorf("topic: %s , has not been created", p.kafkaTopic)
+	}
 
 	p.producers = make([]*producer, p.poolInfo.initCapacity)
 
 	var i int32
 	for i = 0; i < p.poolInfo.initCapacity; i++ {
-		producer, err := createProducer()
-
+		producer, err := createProducer(p.kafkaBrokerAddress, p.kafkaTopic)
 		if err != nil {
-			log.Printf("Failed to create connection: %v\n", err)
-			continue
+			return err
 		}
 
 		p.producers = append(p.producers, producer)
-		p.poolInfo.idle++
+		p.poolInfo.idling++
 	}
 
+	return nil
 }
 
-func NewPool() *Pool {
+func NewPool() (*Pool, error) {
 	p := &Pool{poolInfo: poolInfo{
 		maxCapacity:  100,
 		initCapacity: 10,
 		maxIdle:      50,
+
+		kafkaBrokerAddress: "localhost:9092",
+		kafkaTopic:         "bus_1",
 	}}
 
-	p.initialize()
+	err := p.initialize()
+	if err != nil {
+		return nil, err
+	}
 
-	return p
+	return p, nil
 }
 
 func (p *Pool) GetConn() {
@@ -116,7 +132,7 @@ func (p *Pool) GetRunning() int {
 }
 
 func (p *Pool) GetIdle() int {
-	return int(atomic.LoadInt32(&p.idle))
+	return int(atomic.LoadInt32(&p.idling))
 }
 
 func (p *Pool) GetWaiting() int {

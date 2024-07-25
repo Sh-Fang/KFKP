@@ -1,34 +1,44 @@
 package kfkp
 
 import (
-	"context"
 	"fmt"
+	"log"
 	"testing"
-
-	"github.com/segmentio/kafka-go"
 )
 
-func TestGetAllKafkaTopic(t *testing.T) {
-	testMap := make(map[string]struct{})
-	getAllKafkaTopic("localhost:9092", testMap)
+func TestGetKafkaTopics(t *testing.T) {
+	var testMap map[string]struct{}
+	var err error
+	testMap, err = getKafkaTopics("localhost:9092")
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	for k := range testMap {
 		fmt.Println(k)
 	}
 }
 
-func TestCreateProducer(t *testing.T) {
-	p, err := createProducer()
-
+func TestCreateProducerAndSendMessage(t *testing.T) {
+	pd, err := createProducer("localhost:9092", "bus_1")
 	if err != nil {
-		fmt.Print("err")
+		fmt.Println(err)
 	}
 
-	err = p.writer.WriteMessages(context.Background(), kafka.Message{
-		Value: []byte("123"),
-	})
+	err = pd.SendMessage([]byte("123"))
 
 	if err != nil {
 		fmt.Println(err)
 	}
+}
+
+func TestNewPool(t *testing.T) {
+	pool, err := NewPool()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	idle := pool.GetIdle()
+
+	fmt.Println(idle)
 }
