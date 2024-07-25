@@ -10,6 +10,7 @@ import (
 
 var (
 	kafkaTopics map[string]struct{}
+	wq          = newWaitQueue()
 )
 
 type poolInfo struct {
@@ -58,6 +59,9 @@ func (p *Pool) addProducer() error {
 }
 
 func (p *Pool) initialize() error {
+	// initialize slice
+	p.producers = make([]*producer, 0)
+
 	// get all existed topic
 	var err error
 	kafkaTopics, err = getKafkaTopics(p.BrokerAddress)
@@ -70,9 +74,6 @@ func (p *Pool) initialize() error {
 	if !exists {
 		return fmt.Errorf("topic: %s , has not been created", p.Topic)
 	}
-
-	// initialize the producers slice
-	p.producers = make([]*producer, 0)
 
 	// add initial producers
 	var i int32
@@ -118,9 +119,41 @@ func (p *Pool) GetConn() (*producer, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+DoubleCheck:
+	if p.idling <= 0 {
+		// if no available producer, wait
+		ch := make(chan struct{})
+
+		wq.mu.Lock()
+		wq.waiters = append(wq.waiters, ch)
+		p.poolInfo.waiting++
+		wq.mu.Unlock()
+		p.mu.Unlock() // release the lock
+
+		// wait for a connection to be available
+		<-ch
+
+		// if been woken up by NotifyOne, return a Connection
+		p.mu.Lock() // re-acquire the lock
+
+		// double check
+		if p.idling > 0 {
+			pd := p.producers[0]
+			p.producers = p.producers[1:]
+
+			return pd, nil
+		} else {
+			goto DoubleCheck
+		}
+
+		// return nil, fmt.Errorf("no available producer")
+	}
+
 	pd := p.producers[0]
 	p.producers = p.producers[1:]
-	p.poolInfo.idling--
+
+	p.idling--
+	p.running++
 
 	return pd, nil
 }
@@ -128,6 +161,23 @@ func (p *Pool) GetConn() (*producer, error) {
 func (p *Pool) PutConn(pd *producer) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.waiting > 0 {
+		// if there are waiting producers, wake up one
+		ch := wq.waiters[0]
+
+		wq.mu.Lock()
+		wq.waiters = wq.waiters[1:]
+		p.waiting--
+		wq.mu.Unlock()
+
+		p.producers = append(p.producers, pd) // add the producer to the pool
+		p.idling++
+
+		close(ch) // wake up one
+
+		return nil
+	}
 
 	p.producers = append(p.producers, pd)
 	p.poolInfo.idling++

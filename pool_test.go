@@ -3,6 +3,8 @@ package kfkp
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -55,6 +57,9 @@ func TestNewPool(t *testing.T) {
 		WithBrokerAddress("localhost:9092"),
 		WithTopic("bus_1"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	pd, err = pool.GetConn()
 	if err != nil {
@@ -76,4 +81,53 @@ func TestNewPool(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func TestConcurrentGetAndPut(t *testing.T) {
+	// using consumer config
+	pool, err := NewPool(
+		WithInitCapacity(100),
+		WithMaxCapacity(100),
+		WithMaxIdle(20),
+		WithBrokerAddress("localhost:9092"),
+		WithTopic("bus_1"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	wg := sync.WaitGroup{}
+
+	for i := 0; i < 100; i++ {
+		go func(i int) {
+			wg.Add(1)
+			defer wg.Done()
+
+			pd, err := pool.GetConn()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			err = pd.SendMessage([]byte("123"), []byte(strconv.Itoa(i)))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// time.Sleep(100 * time.Millisecond)
+
+			err = pool.PutConn(pd)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+		}(i)
+	}
+
+	wg.Wait()
+
+	err = pool.ClosePool()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 }
