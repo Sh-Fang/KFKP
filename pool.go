@@ -245,6 +245,15 @@ func (p *Pool) smoothlyExpandMaxIdle() {
 	// after expanding, reset misses
 	p.misses = 0
 
+	// the pool has been expanded, notify some waiters
+	wq.mu.Lock()
+	for i := 0; i < int(diff); i++ {
+		ch := wq.waiters[0]
+		wq.waiters = wq.waiters[1:]
+		close(ch) // wake up one
+	}
+	wq.mu.Unlock()
+
 }
 
 func (p *Pool) PutConn(pd *producer) error {
