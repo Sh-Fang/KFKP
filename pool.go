@@ -54,8 +54,9 @@ type poolInfo struct {
 
 type Pool struct {
 	poolInfo
-	producers   []*producer
-	mu          sync.Mutex
+	producers []*producer
+	lock      sync.Locker
+	// mu          sync.Mutex
 	stopCleaner chan struct{} // channel to stop the cleaner
 }
 
@@ -85,8 +86,8 @@ func (p *Pool) createProducer() (*producer, error) {
 }
 
 func (p *Pool) addProducer(count int) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
 	for i := 0; i < count; i++ {
 		pd, err := p.createProducer()
@@ -152,7 +153,10 @@ func NewPool(opts ...Option) (*Pool, error) {
 	}
 
 	// according to the poolInfo, create the pool
-	p := &Pool{poolInfo: *poolInfo}
+	p := &Pool{
+		poolInfo: *poolInfo,
+		lock:     NewSpinLock(),
+	}
 
 	err := p.initialize()
 	if err != nil {
@@ -163,7 +167,7 @@ func NewPool(opts ...Option) (*Pool, error) {
 }
 
 func (p *Pool) GetConn() (*producer, error) {
-	p.mu.Lock()
+	p.lock.Lock()
 
 retry:
 	if len(p.producers) <= 0 {
@@ -174,13 +178,13 @@ retry:
 		wq.waiters = append(wq.waiters, ch)
 		wq.mu.Unlock()
 
-		p.mu.Unlock() // release the lock
+		p.lock.Unlock() // release the lock
 
 		// wait for a connection to be available
 		select {
 		case <-ch:
 			// if been woken up by NotifyOne, return a Connection
-			p.mu.Lock() // re-acquire the lock
+			p.lock.Lock() // re-acquire the lock
 
 			// double check
 			if len(p.producers) > 0 {
@@ -188,7 +192,7 @@ retry:
 				p.producers = p.producers[1:]
 				p.running++
 
-				p.mu.Unlock()
+				p.lock.Unlock()
 
 				// update the last used time
 				pd.lastUsed = time.Now()
@@ -238,7 +242,7 @@ retry:
 
 		p.running++
 
-		p.mu.Unlock()
+		p.lock.Unlock()
 
 		// update the last used time
 		pd.lastUsed = time.Now()
@@ -290,16 +294,16 @@ func (p *Pool) PutConn(pd *producer) error {
 		ch := wq.waiters[0]
 		wq.waiters = wq.waiters[1:]
 
-		p.mu.Lock()
+		p.lock.Lock()
 		p.producers = append(p.producers, pd) // add the producer to the pool
-		p.mu.Unlock()
+		p.lock.Unlock()
 
 		close(ch) // wake up one
 
 		return nil
 	}
 
-	p.mu.Lock()
+	p.lock.Lock()
 	// if the pool is full, close the producer
 	if len(p.producers) >= int(p.maxIdle) {
 		err := pd.closeProducer()
@@ -309,7 +313,7 @@ func (p *Pool) PutConn(pd *producer) error {
 	} else {
 		p.producers = append(p.producers, pd)
 	}
-	p.mu.Unlock()
+	p.lock.Unlock()
 
 	return nil
 }
@@ -331,8 +335,8 @@ func (p *Pool) startCleaner() {
 
 // cleanUp cleans up overdue producers
 func (p *Pool) cleanUp() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
 	now := time.Now()
 
@@ -349,8 +353,8 @@ func (p *Pool) cleanUp() {
 func (p *Pool) ClosePool() error {
 	close(p.stopCleaner) // stop the cleaner
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.lock.Lock()
+	defer p.lock.Unlock()
 
 	// close each producer instance
 	for _, pd := range p.producers {

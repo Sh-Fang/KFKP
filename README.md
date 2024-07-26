@@ -108,3 +108,6 @@ err = pool.ClosePool()
 
 # 📄 License
 The source code in kfkp is available under the [MIT License](https://github.com/Sh-Fang/kfkp/blob/main/LICENSE).
+
+# 📚 Relevant Projects
+- [ants: ](https://github.com/panjf2000/ants) A powerful and reliable pooling solution for Go.
