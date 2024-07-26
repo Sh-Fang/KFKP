@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -29,7 +28,7 @@ func TestConcurrentGetAndPut(t *testing.T) {
 	pool, err := NewPool(
 		WithInitCapacity(10),
 		WithMaxCapacity(100),
-		WithMaxIdle(20),
+		WithMaxIdle(10),
 		WithBrokerAddress("localhost:9092"),
 		WithTopic("bus_1"),
 		WithRequiredAcks(kafka.RequireNone),
@@ -60,7 +59,7 @@ func TestConcurrentGetAndPut(t *testing.T) {
 				return
 			}
 
-			time.Sleep(100 * time.Millisecond)
+			// time.Sleep(10 * time.Millisecond)
 
 			err = pool.PutConn(pd)
 			if err != nil {

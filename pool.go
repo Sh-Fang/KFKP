@@ -17,20 +17,21 @@ var (
 type poolInfo struct {
 	initCapacity  int32
 	maxCapacity   int32
-	maxIdle       int32
+	maxIdle       int32 // maxIdle should same as initCapacity
 	brokerAddress string
 	topic         string
 	requiredAcks  kafka.RequiredAcks
 	async         bool
 
 	running int32
+	misses  int32
 }
 
 type Pool struct {
 	poolInfo
 	producers []*producer
 	mu        sync.Mutex
-	isLocked  bool
+	// isLocked  bool
 }
 
 func (p *Pool) createProducer() (*producer, error) {
@@ -55,16 +56,18 @@ func (p *Pool) createProducer() (*producer, error) {
 	return pd, nil
 }
 
-func (p *Pool) addProducer() error {
+func (p *Pool) addProducer(count int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	pd, err := p.createProducer()
-	if err != nil {
-		return err
-	}
+	for i := 0; i < count; i++ {
+		pd, err := p.createProducer()
+		if err != nil {
+			return err
+		}
 
-	p.producers = append(p.producers, pd)
+		p.producers = append(p.producers, pd)
+	}
 
 	return nil
 }
@@ -87,12 +90,9 @@ func (p *Pool) initialize() error {
 	}
 
 	// add initial producers
-	var i int32
-	for i = 0; i < p.poolInfo.initCapacity; i++ {
-		err := p.addProducer()
-		if err != nil {
-			return err
-		}
+	err = p.addProducer(int(p.poolInfo.initCapacity))
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -103,7 +103,7 @@ func NewPool(opts ...Option) (*Pool, error) {
 	poolInfo := &poolInfo{
 		initCapacity:  10,
 		maxCapacity:   100,
-		maxIdle:       50,
+		maxIdle:       10,
 		brokerAddress: "localhost:9092",
 		topic:         "bus_1",
 		requiredAcks:  kafka.RequireNone,
@@ -173,6 +173,13 @@ retry:
 
 			wq.mu.Unlock()
 
+			p.addMisses(1) // within 100 ms no connection available, add one miss
+
+			// background expanding pool's capacity
+			if p.misses >= p.maxIdle {
+				go p.smoothlyExpandMaxIdle()
+			}
+
 			pd, err := p.createProducer()
 			if err != nil {
 				return nil, err
@@ -191,6 +198,31 @@ retry:
 
 		return pd, nil
 	}
+}
+
+func (p *Pool) smoothlyExpandMaxIdle() {
+	const threshold = 256
+	oldMaxIdle := p.maxIdle
+
+	// enlarge the maxIdle
+	if p.maxIdle <= p.maxCapacity {
+		if p.maxIdle < threshold {
+			p.maxIdle = p.maxIdle + p.maxIdle
+		} else {
+			p.maxIdle += (p.maxIdle + 3*threshold) >> 2
+		}
+	}
+
+	// if the maxIdle is increased, add new producers
+	diff := p.maxIdle - oldMaxIdle
+
+	if diff > 0 {
+		p.addProducer(int(diff))
+	}
+
+	// after expanding, reset misses
+	p.misses = 0
+
 }
 
 func (p *Pool) PutConn(pd *producer) error {
@@ -212,7 +244,15 @@ func (p *Pool) PutConn(pd *producer) error {
 	}
 
 	p.mu.Lock()
-	p.producers = append(p.producers, pd)
+	// if the pool is full, close the producer
+	if len(p.producers) >= int(p.maxIdle) {
+		err := pd.closeProducer()
+		if err != nil {
+			return err
+		}
+	} else {
+		p.producers = append(p.producers, pd)
+	}
 	p.mu.Unlock()
 
 	return nil
@@ -234,6 +274,10 @@ func (p *Pool) ClosePool() error {
 	p.producers = nil
 
 	return nil
+}
+
+func (p *Pool) addMisses(delta int) {
+	atomic.AddInt32(&p.misses, int32(delta))
 }
 
 func (p *Pool) addRunning(delta int) {
