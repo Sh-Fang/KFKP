@@ -1,6 +1,10 @@
 package kfkp
 
-import "github.com/segmentio/kafka-go"
+import (
+	"time"
+
+	"github.com/segmentio/kafka-go"
+)
 
 // Option represents the optional function.
 type Option func(*poolInfo)
@@ -51,5 +55,19 @@ func WithRequiredAcks(requiredAcks kafka.RequiredAcks) Option {
 func WithAsync(async bool) Option {
 	return func(p *poolInfo) {
 		p.async = async
+	}
+}
+
+// WithClearUpInterval sets up the clear up interval of the pool.
+func WithClearUpInterval(d time.Duration) Option {
+	return func(p *poolInfo) {
+		p.clearUpInterval = d
+	}
+}
+
+// WithConnLifetime sets up the conn lifetime of the pool.
+func WithConnLifetime(d time.Duration) Option {
+	return func(p *poolInfo) {
+		p.connLifetime = d
 	}
 }

@@ -47,13 +47,16 @@ type poolInfo struct {
 
 	running int32
 	misses  int32
+
+	clearUpInterval time.Duration
+	connLifetime    time.Duration
 }
 
 type Pool struct {
 	poolInfo
-	producers []*producer
-	mu        sync.Mutex
-	// isLocked  bool
+	producers   []*producer
+	mu          sync.Mutex
+	stopCleaner chan struct{} // channel to stop the cleaner
 }
 
 func (p *Pool) createProducer() (*producer, error) {
@@ -74,6 +77,9 @@ func (p *Pool) createProducer() (*producer, error) {
 		RequiredAcks: p.requiredAcks,
 		Async:        p.async,
 	}
+
+	// update the last used time
+	pd.lastUsed = time.Now()
 
 	return pd, nil
 }
@@ -98,6 +104,9 @@ func (p *Pool) initialize() error {
 	// initialize slice
 	p.producers = make([]*producer, 0)
 
+	// initialize stop channel
+	p.stopCleaner = make(chan struct{})
+
 	// get all existed topic
 	var err error
 	kafkaTopics, err = getKafkaTopics(p.brokerAddress)
@@ -117,19 +126,24 @@ func (p *Pool) initialize() error {
 		return err
 	}
 
+	// background start the cleaner
+	go p.startCleaner()
+
 	return nil
 }
 
 func NewPool(opts ...Option) (*Pool, error) {
 	// default poolInfo
 	poolInfo := &poolInfo{
-		initCapacity:  10,
-		maxCapacity:   100,
-		maxIdle:       10,
-		brokerAddress: "localhost:9092",
-		topic:         "bus_1",
-		requiredAcks:  kafka.RequireNone,
-		async:         false,
+		initCapacity:    10,
+		maxCapacity:     100,
+		maxIdle:         10,
+		brokerAddress:   "localhost:9092",
+		topic:           "bus_1",
+		requiredAcks:    kafka.RequireNone,
+		async:           false,
+		clearUpInterval: 10 * time.Second,
+		connLifetime:    10 * time.Second,
 	}
 
 	// if there are any options, ignore the default options and apply those options
@@ -175,6 +189,10 @@ retry:
 				p.running++
 
 				p.mu.Unlock()
+
+				// update the last used time
+				pd.lastUsed = time.Now()
+
 				return pd, nil
 
 			} else {
@@ -207,16 +225,23 @@ retry:
 				return nil, err
 			}
 
+			// update the last used time
+			pd.lastUsed = time.Now()
+
 			return pd, nil
 		}
 
 	} else {
+		// if there are available producers, return one
 		pd := p.producers[0]
 		p.producers = p.producers[1:]
 
 		p.running++
 
 		p.mu.Unlock()
+
+		// update the last used time
+		pd.lastUsed = time.Now()
 
 		return pd, nil
 	}
@@ -289,7 +314,41 @@ func (p *Pool) PutConn(pd *producer) error {
 	return nil
 }
 
+// startCleaner starts a cleaner to clear up overdue producers periodically
+func (p *Pool) startCleaner() {
+	ticker := time.NewTicker(p.clearUpInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			p.cleanUp()
+		case <-p.stopCleaner:
+			return // after return the defer will be executed
+		}
+	}
+}
+
+// cleanUp cleans up overdue producers
+func (p *Pool) cleanUp() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+
+	for _, pd := range p.producers {
+		if pd.lastUsed.Add(p.connLifetime).Before(now) {
+			err := pd.closeProducer()
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
 func (p *Pool) ClosePool() error {
+	close(p.stopCleaner) // stop the cleaner
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

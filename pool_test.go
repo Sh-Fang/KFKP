@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -33,6 +34,8 @@ func TestConcurrentGetAndPut(t *testing.T) {
 		WithTopic("bus_1"),
 		WithRequiredAcks(kafka.RequireNone),
 		WithAsync(false),
+		WithClearUpInterval(10*time.Second),
+		WithConnLifetime(10*time.Second),
 	)
 	if err != nil {
 		log.Fatal(err)

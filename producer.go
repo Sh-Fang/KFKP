@@ -2,13 +2,15 @@ package kfkp
 
 import (
 	"context"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 )
 
 type producer struct {
 	// producerID string
-	writer *kafka.Writer
+	writer   *kafka.Writer
+	lastUsed time.Time
 }
 
 func (pd *producer) SendMessage(key, value []byte) error {
