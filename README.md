@@ -1,8 +1,8 @@
-# Introduction
+# 📙 Introduction
 
 Library `kfkp` implements a kafka producer pool, which is a high-performance Go package designed to efficiently manage Kafka producer connections.
 
-# Features
+# 🏔️ Features
 - Dynamic Scaling: Automatically manages the creation, acquisition, release, and destruction of Kafka producer connections, with support for dynamic scaling based on demand.
 
 - Synchronization Mechanisms: Utilizes synchronization mechanisms to handle connection contention and timeout scenarios, ensuring efficient and reliable connection management.
@@ -13,12 +13,12 @@ Library `kfkp` implements a kafka producer pool, which is a high-performance Go 
 
 - Connection Cleanup: Periodically cleans up long-unused connections to maintain optimal performance and resource utilization.
 
-# How to install
+# ⚙️ How to install
 ```GO
 go get -u install "github.com/Sh-Fang/kfkp"
 ```
 
-# How to use
+# ✈️ How to use
 ```GO
 package main
 
@@ -106,5 +106,5 @@ You can close the connection pool and release all the resources.
 err = pool.ClosePool()
 ```
 
-# License
+# 📄 License
 The source code in kfkp is available under the [MIT License](https://github.com/Sh-Fang/kfkp/blob/main/LICENSE).
