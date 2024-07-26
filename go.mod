@@ -1,4 +1,4 @@
-module kfkp
+module github.com/Sh-Fang/kfkp
 
 go 1.22.3
 
